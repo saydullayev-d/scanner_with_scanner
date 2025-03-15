@@ -1,54 +1,124 @@
-// services/excel_service.dart
 import 'dart:io';
 import 'package:excel/excel.dart';
+import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 
-class ExcelService {
-  Future<File> createExcelFile(String invoiceNumber) async {
-    var excel = Excel.createExcel();
-    Sheet sheet = excel['Sheet1'];
+class ExcelHelper {
+  String? filePath;
 
-    // Добавляем заголовки с использованием TextCellValue
-    sheet.appendRow([
-      TextCellValue('Номер накладной'),
-      TextCellValue('Код маркировки'),
-    ]);
-    sheet.appendRow([
-      TextCellValue(invoiceNumber),
-      TextCellValue(''),
-    ]);
 
-    // Получаем путь для сохранения файла
-    final directory = await getTemporaryDirectory();
-    final filePath = '${directory.path}/накладная_$invoiceNumber.xlsx';
-    final file = File(filePath);
-
-    // Сохраняем файл
-    final excelBytes = excel.encode();
-    await file.writeAsBytes(excelBytes!);
-
-    return file;
+  void setFilePath(String path) {
+    filePath = path;
   }
 
-  Future<void> updateExcelFile(File file, String invoiceNumber, List<String> markingCodes) async {
-    var excel = Excel.decodeBytes(await file.readAsBytes());
-    Sheet sheet = excel['Sheet1'];
-
-    // Очищаем старые данные (кроме заголовков)
-    for (int i = sheet.maxRows - 1; i > 0; i--) {
-      sheet.removeRow(i);
+  /// Инициализация пути к файлу (если не задан вручную)
+  Future<void> initializeFilePath() async {
+    if (filePath == null) {
+      final directory = await getApplicationDocumentsDirectory();
+      final now = DateTime.now();
+      final formatter = DateFormat('dd-MM-yyyy');
+      final currentDate = formatter.format(now);
+      filePath = '${directory.path}/$currentDate.xlsx';
     }
+  }
 
-    // Добавляем новые данные с использованием TextCellValue
-    for (String code in markingCodes) {
-      sheet.appendRow([
-        TextCellValue(invoiceNumber),
-        TextCellValue(code),
-      ]);
+  /// Создает Excel файл без номера номенклатуры (для совместимости)
+  Future<void> createExcelFile() async {
+    await initializeFilePath();
+    final file = File(filePath!);
+    final now = DateTime.now();
+    final formatter = DateFormat('dd-MM-yyyy');
+    final currentDate = formatter.format(now);
+    if (!await file.exists()) {
+      try {
+        var excel = Excel.createExcel();
+        var firstSheet = excel.tables.keys.first;
+        var sheet = excel[firstSheet];
+        await file.writeAsBytes(excel.save()!, flush: true);
+      } catch (e) {
+        print('Ошибка при создании файла Excel: $e');
+      }
     }
+  }
 
-    // Сохраняем обновленный файл
-    final excelBytes = excel.encode();
-    await file.writeAsBytes(excelBytes!);
+  /// Создает Excel файл с номером номенклатуры
+  Future<void> createExcelFileWithItemNumber(String customFilePath, String itemNumber) async {
+    final file = File(customFilePath);
+    final now = DateTime.now();
+    final formatter = DateFormat('dd-MM-yyyy');
+    final currentDate = formatter.format(now);
+
+    if (!await file.exists()) {
+      try {
+        var excel = Excel.createExcel();
+        var firstSheet = excel.tables.keys.first;
+        var sheet = excel[firstSheet];
+        sheet.appendRow([itemNumber]);
+        sheet.appendRow([]); // Empty row for separation
+        await file.writeAsBytes(excel.save()!, flush: true);
+      } catch (e) {
+        print('Ошибка при создании файла Excel: $e');
+      }
+    }
+  }
+
+  Future<bool> isDataUnique(String data) async {
+    await createExcelFile();
+    final file = File(filePath!);
+    var bytes = file.readAsBytesSync();
+    var excel = Excel.decodeBytes(bytes);
+
+    var firstSheetName = excel.tables.keys.first;
+    Sheet? sheet = excel[firstSheetName];
+    if (sheet == null) return true;
+
+    for (var row in sheet.rows) {
+      // Проверяем, что в строке есть хотя бы одна ячейка, и она равна искомому значению
+      if (row.isNotEmpty && row.first?.value?.toString() == data) {
+        print('Найдено дублирующееся значение: $data');
+        return false;
+      }
+    }
+    return true;
+  }
+
+
+
+  /// Добавляет новые данные в первый лист Excel
+  Future<void> addData(String data) async {
+    await createExcelFile();
+    final file = File(filePath!);
+    var bytes = file.readAsBytesSync();
+    var excel = Excel.decodeBytes(bytes);
+
+    var firstSheetName = excel.tables.keys.first;
+    Sheet? sheet = excel[firstSheetName];
+    if (sheet != null) {
+      // Проверяем уникальность перед добавлением
+      if (await isDataUnique(data)) {
+        sheet.appendRow([data]);
+        // Сохраняем изменения в файл
+        file.writeAsBytesSync(excel.save()!, flush: true);
+        print('Данные добавлены: $data');
+      } else {
+        print('Данные уже существуют: $data');
+      }
+    } else {
+      print('Ошибка: Первый лист не найден!');
+    }
+  }
+
+  /// Получает список всех Excel файлов в каталоге
+  Future<List<String>> getExcelFiles() async {
+    try {
+      final directory = await getApplicationDocumentsDirectory();
+      final files = directory.listSync().where((file) {
+        return file is File && file.path.endsWith('.xlsx');
+      }).map((file) => file.path).toList();
+      return files;
+    } catch (e) {
+      print('Error getting Excel files: $e');
+      return [];
+    }
   }
 }

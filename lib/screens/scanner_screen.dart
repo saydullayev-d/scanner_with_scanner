@@ -1,7 +1,6 @@
-// screens/scanner_screen.dart
 import 'package:flutter/material.dart';
 import '../models/document.dart';
-import '../services/excel_service.dart'; // Импортируем ExcelService
+import '../services/excel_service.dart'; // Используем ExcelHelper
 
 class ScannerScreen extends StatefulWidget {
   final Document document;
@@ -15,13 +14,12 @@ class ScannerScreen extends StatefulWidget {
 class _ScannerScreenState extends State<ScannerScreen> {
   final TextEditingController _scanController = TextEditingController();
   final FocusNode _focusNode = FocusNode();
-  final ExcelService _excelService =
-      ExcelService(); // Создаем экземпляр ExcelService
+  final ExcelHelper _excelHelper = ExcelHelper(); // Создаем экземпляр ExcelHelper
 
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    FocusScope.of(context).requestFocus(_focusNode);
+  void initState() {
+    super.initState();
+    _excelHelper.initializeFilePath(); // Инициализируем путь к файлу
   }
 
   @override
@@ -32,25 +30,26 @@ class _ScannerScreenState extends State<ScannerScreen> {
   }
 
   Future<void> _addCode(String code) async {
-    if (code.isNotEmpty && widget.document.excelFile != null) {
-      setState(() {
-        widget.document.markingCodes.add(code);
-        _scanController.clear();
-      });
-      // Обновляем Excel-файл
-      try {
-        await _excelService.updateExcelFile(
-          widget.document.excelFile!,
-          widget.document.invoiceNumber,
-          widget.document.markingCodes,
-        );
-        print('Excel-файл обновлен с кодом: $code');
-      } catch (e) {
-        print('Ошибка при обновлении Excel-файла: $e');
+    if (code.isNotEmpty) {
+      bool isUnique = await _excelHelper.isDataUnique(code);
+      if (isUnique) {
+        setState(() {
+          widget.document.markingCodes.add(code);
+          _scanController.clear();
+        });
+        try {
+          await _excelHelper.addData(code);
+          print('Excel-файл обновлен с кодом: $code');
+        } catch (e) {
+          print('Ошибка при обновлении Excel-файла: $e');
+        }
+      } else {
+        print('Данный код уже существует в файле.');
       }
     } else {
-      print('Ошибка: код пустой или файл не существует');
+      print('Ошибка: код пустой');
     }
+    FocusScope.of(context).requestFocus(_focusNode);
   }
 
   @override
@@ -70,10 +69,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
                 labelText: 'Отсканируйте код',
                 border: OutlineInputBorder(),
               ),
-              onSubmitted: (value) {
-                _addCode(value); // Добавляем код и обновляем файл
-                FocusScope.of(context).requestFocus(_focusNode);
-              },
+              onSubmitted: (value) => _addCode(value),
             ),
           ),
           Expanded(

@@ -1,10 +1,11 @@
-// screens/home_screen.dart
 import 'package:flutter/material.dart';
 import 'package:open_file/open_file.dart';
 import '../models/document.dart';
 import 'package:intl/intl.dart';
 import 'scanner_screen.dart';
-import '../services/excel_service.dart'; // Импорт сервиса
+import '../services/excel_service.dart'; // Импорт ExcelHelper
+import 'dart:io';
+
 
 class HomeScreen extends StatefulWidget {
   @override
@@ -13,7 +14,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   List<Document> documents = [];
-  final ExcelService excelService = ExcelService();
+  final ExcelHelper excelHelper = ExcelHelper();
 
   Future<String?> _showItemNumberDialog(BuildContext context) async {
     final TextEditingController controller = TextEditingController();
@@ -55,20 +56,25 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Future<void> _addDocument() async {
-    final itemNumber = await _showItemNumberDialog(context);
-    if (itemNumber != null && itemNumber.isNotEmpty) {
-      final currentDate = DateFormat('yyyyMMdd').format(DateTime.now());
-      final invoiceNumber = '${itemNumber}_$currentDate';
-      final file = await excelService.createExcelFile(invoiceNumber);
-      setState(() {
-        documents.add(Document(
-          invoiceNumber: invoiceNumber,
-          excelFile: file,
-        ));
-      });
-    }
+Future<void> _addDocument() async {
+  final itemNumber = await _showItemNumberDialog(context);
+  if (itemNumber != null && itemNumber.isNotEmpty) {
+    final currentDate = DateFormat('yyyyMMdd').format(DateTime.now());
+    final invoiceNumber = '${itemNumber}_$currentDate';
+    
+    final files = await excelHelper.getExcelFiles();
+    final filePath = files.isNotEmpty ? files.first : '';
+    
+    await excelHelper.createExcelFileWithItemNumber(filePath, invoiceNumber);
+    
+    setState(() {
+      documents.add(Document(
+        invoiceNumber: invoiceNumber,
+        excelFile: File(filePath), // Теперь File() доступен
+      ));
+    });
   }
+}
 
   void _openScannerScreen(Document document) {
     Navigator.push(
@@ -131,18 +137,18 @@ class _HomeScreenState extends State<HomeScreen> {
                     contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                     onTap: () => _openScannerScreen(document),
                     trailing: Row(
-  mainAxisSize: MainAxisSize.min,
-  children: [
-    IconButton(
-      icon: Icon(Icons.qr_code_scanner, color: Colors.blueAccent),
-      onPressed: () => _openScannerScreen(document),
-    ),
-    IconButton(
-      icon: Icon(Icons.open_in_new, color: Colors.green),
-      onPressed: () => OpenFile.open(document.excelFile!.path),
-    ),
-  ],
-),
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: Icon(Icons.qr_code_scanner, color: Colors.blueAccent),
+                          onPressed: () => _openScannerScreen(document),
+                        ),
+                        IconButton(
+                          icon: Icon(Icons.open_in_new, color: Colors.green),
+                          onPressed: () => OpenFile.open(document.excelFile!.path),
+                        ),
+                      ],
+                    ),
                   ),
                 );
               },
